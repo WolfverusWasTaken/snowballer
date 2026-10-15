@@ -1,0 +1,4 @@
+interface:
+  display_name: "Snowballer"
+  short_description: "Build source-linked research idea graphs"
+  default_prompt: "Use $snowballer to research a topic and build a searchable idea graph."

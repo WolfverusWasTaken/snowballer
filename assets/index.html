@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Snowballer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#fff;color:#111;font:14px Inter,Arial,sans-serif}header{padding:20px 24px;border-bottom:1px solid #ddd;display:flex;gap:20px;align-items:center;flex-wrap:wrap}h1{font-size:18px;margin:0;letter-spacing:-.03em}.controls{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}input,select,button{font:inherit;border:1px solid #aaa;border-radius:4px;padding:9px 10px;background:#fff;color:#111}button{cursor:pointer}input[type=search]{width:250px}main{display:grid;grid-template-columns:minmax(0,1fr) 360px;height:calc(100vh - 77px)}#graph{width:100%;height:100%;touch-action:none;cursor:grab}aside{border-left:1px solid #ddd;padding:24px;overflow:auto}aside h2{font-size:20px;line-height:1.25;margin:0 0 8px}aside h3{font-size:12px;text-transform:uppercase;letter-spacing:.08em;margin:24px 0 8px}aside p{line-height:1.55}aside ul{padding-left:18px;line-height:1.5}aside li{margin:5px 0}.muted{color:#777}a{color:#111;text-decoration:underline}.chip{display:inline-block;border:1px solid #bbb;border-radius:20px;padding:3px 8px;margin:2px 3px 2px 0;font-size:11px}.node{cursor:pointer}.node circle{fill:#111;stroke:#fff;stroke-width:2}.node text{font:11px Inter,Arial,sans-serif;fill:#111;opacity:0;pointer-events:none;paint-order:stroke;stroke:#fff;stroke-width:4px}.node:hover text,.node.selected text,.node.label-visible text{opacity:1}.node:hover{opacity:1}.node.dim{opacity:.13}.edge{stroke:#bbb;stroke-width:1}.edge.dim{opacity:.08}.node.selected circle{fill:#fff;stroke:#111;stroke-width:3}.node.selected text{font-weight:700}@media(max-width:850px){main{grid-template-columns:1fr;height:auto}#graph{height:65vh}aside{border-left:0;border-top:1px solid #ddd;min-height:35vh}.controls{margin-left:0}header{padding:14px}}
+    .edge{stroke:#bbb;stroke-width:1;opacity:.22}.edge.active{stroke:#111;stroke-width:2;opacity:.9}.year-label{font:600 12px Inter,Arial,sans-serif;fill:#555;pointer-events:none}
+    .brand{display:flex;align-items:center;gap:10px}.brand img{width:42px;height:38px;object-fit:contain;flex:none;mix-blend-mode:multiply}.map-area{position:relative;min-width:0;min-height:0;overflow:hidden}.connections{position:absolute;right:12px;bottom:12px;width:min(290px,calc(100% - 24px));max-height:35vh;overflow:auto;background:#fff;border:1px solid #aaa;box-shadow:0 4px 16px #0001;padding:10px;z-index:2}.connections[hidden]{display:none}.connections h2{font-size:11px;font-weight:600;line-height:1.2;margin:0 0 6px}.connections ul{list-style:none;margin:0;padding:0}.connections li{margin:0;border-top:1px solid #eee}.connections a{display:flex;gap:6px;align-items:center;padding:5px 0;text-decoration:none;font-size:11px;line-height:1.2;white-space:nowrap}.connections a:hover{text-decoration:underline}.connections .connection-title{overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}.connections small{color:#777;flex:none;font-size:10px}@media(max-width:850px){.connections{max-height:30vh;right:10px;bottom:10px}}
+  </style>
+</head>
+<body>
+<header><div class="brand"><img id="logo" alt="Report logo" hidden><h1 id="report-title">Snowballer</h1></div><div class="controls"><select id="report" aria-label="Select report"></select><input id="query" type="search" placeholder="Search ideas" aria-label="Search ideas"><select id="tag" aria-label="Filter by tag"><option value="">All tags</option></select><select id="year" aria-label="Filter by year"><option value="">All years</option></select><button id="fit" type="button" title="Fit all nodes">Fit graph</button></div></header>
+<main><div class="map-area"><svg id="graph" role="img" aria-label="Research ideas arranged by year"></svg><section id="connections" class="connections" aria-label="Connected ideas" hidden></section></div><aside id="detail"><p class="muted">Ideas run left to right by year. Select a node to see its links. Drag to pan; scroll to zoom.</p></aside></main>
+<script>
+let ideas=[], selected=null, positions={}, scale=1, offset={x:0,y:0}, drag=null, reportId=null, reports=[];
+const svg=document.getElementById('graph'), detail=document.getElementById('detail'), connections=document.getElementById('connections');
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function matches(i){let q=document.getElementById('query').value.toLowerCase().trim().split(/\s+/).filter(Boolean),t=document.getElementById('tag').value,y=document.getElementById('year').value;let h=[i.id,i.title,i.description,i.what_it_does,i.core_discovery,...i.tags].join(' ').toLowerCase();return q.every(w=>h.includes(w))&&(!t||i.tags.includes(t))&&(!y||String(i.year)===y)}
+function draw(){
+  let box=svg.getBoundingClientRect(),w=box.width,h=box.height;
+  svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
+  if(!ideas.length){svg.innerHTML='';return}
+  let byId=Object.fromEntries(ideas.map(i=>[i.id,i]));
+  let edges=ideas.filter(i=>i.past_work.length).map(i=>({a:i,b:byId[i.past_work[0]],kind:'primary'})).filter(e=>e.b);
+  if(selected){let i=byId[selected],seen=new Set(edges.map(e=>[e.a.id,e.b.id].sort().join('|')));if(i){
+    for(let id of [...i.past_work,...(i.related_work||[])]){let b=byId[id],key=[i.id,id].sort().join('|');if(b&&!seen.has(key)){edges.push({a:i,b,kind:'extra'});seen.add(key)}}
+    for(let other of ideas){if(other.id!==i.id&&[...other.past_work,...(other.related_work||[])].includes(i.id)){let key=[i.id,other.id].sort().join('|');if(!seen.has(key)){edges.push({a:other,b:i,kind:'extra'});seen.add(key)}}}
+  }}
+  let filtered=!!(document.getElementById('query').value.trim()||document.getElementById('tag').value||document.getElementById('year').value);
+  let transform=p=>({x:w/2+(p.x+offset.x)*scale,y:h/2+(p.y+offset.y)*scale});
+  let lines=edges.map(e=>{let a=transform(positions[e.a.id]),b=transform(positions[e.b.id]);let active=selected&&(e.a.id===selected||e.b.id===selected);return `<line class="edge ${active?'active':''} ${filtered&&!(matches(e.a)&&matches(e.b))?'dim':''}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`}).join('');
+  let nodes=ideas.map(i=>{let p=transform(positions[i.id]);return `<g class="node ${matches(i)?filtered?'label-visible':'':'dim'} ${selected===i.id?'selected':''}" data-id="${esc(i.id)}" transform="translate(${p.x} ${p.y})"><circle r="8"/><text x="14" y="4">${esc(i.title.length>35?i.title.slice(0,34)+'…':i.title)}</text></g>`}).join('');
+  let years=[...new Set(ideas.map(i=>i.year))].sort(),first=years[0],last=years.at(-1);
+  let headings=years.map(y=>{let x=transform({x:(y-(first+last)/2)*340,y:0}).x;return `<text class="year-label" x="${x}" y="26" text-anchor="middle">${y}</text>`}).join('');
+  svg.innerHTML=lines+nodes+headings;
+}
+function renderConnections(i){
+  let byId=Object.fromEntries(ideas.map(x=>[x.id,x]));
+  let ids=new Set([...i.past_work,...(i.related_work||[]),...ideas.filter(x=>[...x.past_work,...(x.related_work||[])].includes(i.id)).map(x=>x.id)]);
+  let items=[...ids].map(id=>byId[id]).filter(Boolean).sort((a,b)=>a.year-b.year||a.title.localeCompare(b.title));
+  connections.innerHTML=`<h2>Connected ideas</h2><ul>${items.map(x=>`<li><a href="#${encodeURIComponent(x.id)}" title="${esc(x.title)}"><span class="connection-title">${esc(x.title)}</span><small>${x.year}</small></a></li>`).join('')}</ul>`;
+  connections.hidden=false;
+}
+async function show(id){
+  selected=id;
+  let summary=ideas.find(x=>x.id===id);
+  if(!summary)return;
+  renderConnections(summary);draw();
+  detail.innerHTML='<p class="muted">Loading idea…</p>';
+  try{
+    let response=await fetch(`/api/reports/${encodeURIComponent(reportId)}/ideas/${encodeURIComponent(id)}`);
+    if(!response.ok)throw Error(`HTTP ${response.status}`);
+    let i=await response.json();
+    if(selected!==id)return;
+    detail.innerHTML=`<div class="muted">${i.year} · ${esc(i.id)}</div><h2>${esc(i.title)}</h2><p>${esc(i.description)}</p><h3>Problem addressed</h3><p>${esc(i.what_it_does)}</p><h3>Core discovery</h3><p>${esc(i.core_discovery)}</p><h3>Pros</h3><ul>${i.pros.map(x=>`<li>${esc(x)}</li>`).join('')}</ul><h3>Cons</h3><ul>${i.cons.map(x=>`<li>${esc(x)}</li>`).join('')}</ul><h3>Tags</h3>${i.tags.map(t=>`<span class="chip">${esc(t)}</span>`).join('')}<h3>Past work</h3><p>${i.past_work.map(p=>`<a href="#${encodeURIComponent(p)}">${esc(p)}</a>`).join(', ')||'None verified yet'}</p><h3>Related ideas</h3><p>${(i.related_work||[]).map(p=>`<a href="#${encodeURIComponent(p)}">${esc(p)}</a>`).join(', ')||'None yet'}</p><p><a href="/api/reports/${encodeURIComponent(reportId)}/files/${encodeURI(i.folder_path)}/README.md" target="_blank">Full technical notes</a></p><h3>Sources</h3><ul>${i.sources.map(u=>`<li><a href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a></li>`).join('')}</ul>`;
+  }catch(error){if(selected===id)detail.textContent=`Could not load idea: ${error}`}
+}
+function fitGraph(){if(!ideas.length)return;let box=svg.getBoundingClientRect(),pts=Object.values(positions),maxX=Math.max(1,...pts.map(p=>Math.abs(p.x))),maxY=Math.max(1,...pts.map(p=>Math.abs(p.y)));offset={x:0,y:0};scale=Math.min(3,(box.width-80)/(2*maxX),(box.height-80)/(2*maxY));draw()}
+function init(data){ideas=data.ideas;positions={};selected=null;connections.hidden=true;let tags=[...new Set(ideas.flatMap(i=>i.tags))].sort(),years=[...new Set(ideas.map(i=>i.year))].sort((a,b)=>b-a);document.getElementById('tag').innerHTML='<option value="">All tags</option>'+tags.map(t=>`<option>${esc(t)}</option>`).join('');document.getElementById('year').innerHTML='<option value="">All years</option>'+years.map(y=>`<option>${y}</option>`).join('');if(!years.length){svg.innerHTML='';detail.textContent='No vetted ideas yet.';return}let ascending=[...years].reverse(),first=ascending[0],last=ascending.at(-1);for(let y of ascending){let group=ideas.filter(i=>i.year===y).sort((a,b)=>a.title.localeCompare(b.title));group.forEach((i,n)=>{positions[i.id]={x:(y-(first+last)/2)*340,y:(n-(group.length-1)/2)*64}})}fitGraph();if(location.hash)show(decodeURIComponent(location.hash.slice(1)))}
+document.getElementById('fit').addEventListener('click',fitGraph);
+['query','tag','year'].forEach(id=>document.getElementById(id).addEventListener(id==='query'?'input':'change',draw));
+svg.addEventListener('pointerdown',e=>{let n=e.target.closest('.node');drag={id:n?.dataset.id||null,x:e.clientX,y:e.clientY,moved:false};svg.setPointerCapture(e.pointerId)});
+svg.addEventListener('pointermove',e=>{if(!drag)return;let dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>3)drag.moved=true;if(drag.id){positions[drag.id].x+=dx/scale;positions[drag.id].y+=dy/scale}else{offset.x+=dx/scale;offset.y+=dy/scale}drag.x=e.clientX;drag.y=e.clientY;draw()});
+svg.addEventListener('pointerup',e=>{if(drag?.id&&!drag.moved){location.hash=encodeURIComponent(drag.id);show(drag.id)}drag=null});
+svg.addEventListener('wheel',e=>{e.preventDefault();scale=Math.max(.08,Math.min(3,scale*(e.deltaY<0?1.1:.9)));draw()},{passive:false});window.addEventListener('resize',draw);
+window.addEventListener('hashchange',()=>show(decodeURIComponent(location.hash.slice(1))));
+async function loadReport(id,preserveHash=false){
+  reportId=id;
+  let report=reports.find(x=>x.id===id);
+  document.getElementById('report').value=id;
+  document.getElementById('report-title').textContent=report.title;
+  document.title=report.title;
+  let logo=document.getElementById('logo');logo.hidden=!report.has_logo;if(report.has_logo)logo.src=`/api/reports/${encodeURIComponent(id)}/logo`;
+  let url=new URL(location.href);url.searchParams.set('report',id);if(!preserveHash)url.hash='';history.replaceState(null,'',url);
+  detail.innerHTML='<p class="muted">Select a node to read the idea.</p>';
+  let response=await fetch(`/api/reports/${encodeURIComponent(id)}/ideas`);
+  if(!response.ok)throw Error(`HTTP ${response.status}`);
+  init(await response.json());
+}
+document.getElementById('report').addEventListener('change',e=>loadReport(e.target.value).catch(error=>detail.textContent=`Could not load report: ${error}`));
+fetch('/api/reports').then(r=>{if(!r.ok)throw Error(r.status);return r.json()}).then(items=>{reports=items;let selector=document.getElementById('report');selector.innerHTML=items.map(x=>`<option value="${esc(x.id)}">${esc(x.title)}</option>`).join('');if(!items.length){detail.textContent='No reports registered yet.';return}let wanted=new URL(location.href).searchParams.get('report');return loadReport(items.some(x=>x.id===wanted)?wanted:items[0].id,true)}).catch(error=>detail.textContent=`Could not load reports: ${error}`);
+</script></body></html>
