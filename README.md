@@ -4,6 +4,8 @@ Snowballer is a Codex skill for building source-linked research maps. It follows
 
 The report title, topic, stopping point, and optional logo belong to each report. Research data stays outside this skill repository.
 
+![Snowballer research graph demo](assets/demo.png)
+
 ## What it produces
 
 ```text
